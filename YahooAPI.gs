@@ -42,11 +42,15 @@ function getYahooCompleteData(id) {
     const validCloses = closes.filter(c => c !== null);
     if (validCloses.length === 0) return null;
     
+    // [Diagnostic] 記錄原始數據，方便追蹤漲跌錯誤原因
+    console.log(`[Diagnostic] ${id} - regularMarketPrice: ${result.meta.regularMarketPrice}, previousClose: ${result.meta.previousClose}`);
+
     // 現價 (cp)
     const cp = result.meta.regularMarketPrice || validCloses[validCloses.length - 1];
     
-    // 昨收 (pc): 倒數第二筆，若只有一筆則用現價
-    const pc = validCloses.length > 1 ? validCloses[validCloses.length - 2] : cp; 
+    // 昨收 (pc): 優先使用 metadata 中的 previousClose (這是最準確的官方昨收基準)
+    // 只有在 metadata 缺失時才回退至歷史陣列取值
+    const pc = result.meta.previousClose || (validCloses.length > 1 ? validCloses[validCloses.length - 2] : cp); 
 
     // 海龜指標：過去 20 日最高價
     const last20Highs = highs.slice(-21, -1).filter(h => h !== null);
@@ -73,7 +77,7 @@ function getYahooCompleteData(id) {
     }
 
     // RSI 計算 (14日)
-    let rsi = 50; // 預設中值
+    let rsi = 50; 
     if (validCloses.length > RSI_PERIOD) {
        let gains = 0;
        let losses = 0;
@@ -88,9 +92,8 @@ function getYahooCompleteData(id) {
        const avgGain = gains / RSI_PERIOD;
        const avgLoss = losses / RSI_PERIOD;
        
-       if (avgLoss === 0) {
-         rsi = 100;
-       } else {
+       if (avgLoss === 0) rsi = 100;
+       else {
          const rs = avgGain / avgLoss;
          rsi = 100 - (100 / (1 + rs));
        }
@@ -99,6 +102,10 @@ function getYahooCompleteData(id) {
     return {
       price: cp,
       prevClose: pc,
+      change: result.meta.regularMarketChange || (cp - pc),
+      changePercent: (result.meta.regularMarketChangePercent || (pc !== 0 ? (cp - pc) / pc : 0)) / 100,
+      eps: result.meta.epsTrailingTwelveMonths || 0,
+      pe: result.meta.trailingPE || 0,
       high: high20,
       low10: low10,
       nValue: trCount > 0 ? sumTR / trCount : (cp * 0.015),
@@ -144,11 +151,19 @@ function getYahooBatchQuotes(ids) {
     
     results.forEach(quote => {
       const sym = (quote.symbol || "").toUpperCase();
-      console.log(`Debug: Symbol=${sym}, EPS=${quote.epsTrailingTwelveMonths}, PE=${quote.trailingPE}`);
+      const cp = quote.regularMarketPrice || 0;
+      const change = quote.regularMarketChange || 0;
+      const changePercent = (quote.regularMarketChangePercent || 0) / 100; // 存為小數點，方便之後 Google Sheets 格式化
+
+      console.log(`Debug: Symbol=${sym}, Price=${cp}, Change=${change}, Change%=${changePercent}`);
+      
       batchData[sym] = {
+        price: cp,
+        change: change,
+        changePercent: changePercent,
         eps: quote.epsTrailingTwelveMonths || 0,
         pe: quote.trailingPE || 0,
-        yield: (quote.trailingAnnualDividendYield || 0) * 100 // 轉成百分比
+        yield: (quote.trailingAnnualDividendYield || 0) * 100
       };
     });
     
@@ -272,13 +287,16 @@ function getYahooQuote(id, currentPrice = 0) {
     }
   }
 
-  // 備用方案 2：全球版 Yahoo Finance HTML 硬爬蟲 (如果奇摩股市也失敗)
-  
-  // 美股或其他 fallback (使用原本的 Yahoo query1 作為底線)
+  // 備用方案 2：全球版 Yahoo Finance API (如果台股 Open Data 沒抓到)
   try {
     const symbol = encodeURIComponent(id);
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const timestamp = new Date().getTime();
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbol}&_=${timestamp}`;
+    
+    const response = UrlFetchApp.fetch(url, { 
+      muteHttpExceptions: true,
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
     const res = JSON.parse(response.getContentText());
     
     if (res.quoteResponse && res.quoteResponse.result && res.quoteResponse.result.length > 0) {
@@ -289,7 +307,9 @@ function getYahooQuote(id, currentPrice = 0) {
         yield: (q.trailingAnnualDividendYield || q.dividendYield || 0) * 100
       };
     }
-  } catch (e) { }
+  } catch (e) { 
+    console.error(`getYahooQuote Error (${id}): ${e.message}`);
+  }
   
   return { eps: 0, pe: 0, yield: 0 };
 }
@@ -405,5 +425,31 @@ function testSingleStock() {
   } else {
     console.error("❌ 基本面抓取失敗。");
   }
+  console.log("--- 測試結束 ---");
+}
+
+/**
+ * 診斷工具：測試批次報價
+ */
+function testBatchQuotes() {
+  const ids = ["0050.TW", "2330.TW", "AAPL", "NVDA"];
+  console.log("--- 測試批次報價 (Batch Quotes) ---");
+  const results = getYahooBatchQuotes(ids);
+  
+  console.log("回傳原始物件的代碼 (Keys): " + Object.keys(results).join(", "));
+  
+  if (!results || Object.keys(results).length === 0) {
+    console.error("❌ 失敗: 回傳資料為空。請確認 API 是否被阻擋。");
+    return;
+  }
+
+  ids.forEach(id => {
+    const d = results[id.toUpperCase()];
+    if (d) {
+      console.log(`✅ ${id}: 現價=${d.price}, 漲跌=${d.change}, 幅度=${(d.changePercent * 100).toFixed(2)}%`);
+    } else {
+      console.warn(`⚠️ ${id} 沒抓到資料。`);
+    }
+  });
   console.log("--- 測試結束 ---");
 }

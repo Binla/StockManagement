@@ -19,16 +19,19 @@ function updateStockPriceOnly() {
   // 快取物件：避免同一支股票重複抓取
   const stockCache = {};
 
-  // [Step 1] 預先統計每支股票的目前總持倉 (用於建議倉位計算)
+  // [Step 1] 預先統計每支股票的目前總持倉
   const stockHoldings = {}; 
+  const uniqueIds = [];
   for (let i = 0; i < data.length; i++) {
-     const id = data[i][1].toString().trim().replace("'", "");
+     const id = data[i][1].toString().trim().replace("'", "").toUpperCase(); // Normalize to UpperCase
      if (!id) continue;
      const shares = Number(data[i][2]) || 0;
      stockHoldings[id] = (stockHoldings[id] || 0) + shares;
+     if (!uniqueIds.includes(id)) uniqueIds.push(id);
   }
   
-  // 移除失敗的 Batch Fetch，改用在迴圈中個別抓取 (僅針對股票)
+  // [NEW Step 1.5] 批次抓取 Snapshot 資料 (現價, 昨收, EPS, PE)
+  const snapshotBatch = getYahooBatchQuotes(uniqueIds);
 
   // [Step 2] 準備批次寫入的容器
   const marketValuesHIA = [];      // H, I, J (現價, 漲跌, 漲跌%)
@@ -39,7 +42,7 @@ function updateStockPriceOnly() {
   
   const rowColors = []; // 儲存需要特別變色的列資訊
 
-  // [Step 3] 主迴圈：計算數據 (不進行 Sheet 寫入)
+  // [Step 3] 主迴圈：計算數據
   for (let i = 0; i < data.length; i++) {
     const row = i + 3;
     const fullId = data[i][1].toString().trim().replace("'", "");
@@ -55,27 +58,50 @@ function updateStockPriceOnly() {
       continue;
     }
 
-    // 抓取行情 (帶快取)
-    if (!stockCache.hasOwnProperty(fullId)) {
-        stockCache[fullId] = getYahooCompleteData(fullId);
-    }
-    const yahoo = stockCache[fullId];
+    // A. 優先從 Snapshot 取得基礎行情 (快取)
+    const upperId = fullId.toUpperCase();
+    const snapshot = snapshotBatch[upperId] || {};
+    const cp = snapshot.price || 0;
     
-    if (yahoo && yahoo.prevClose > 0) {
-      const cp = yahoo.price;
-      const pc = yahoo.prevClose;
-      const h20 = yahoo.high || cp;
-      const n = yahoo.nValue || (cp * 0.015);
-      const rsiVal = yahoo.rsi || 50;
+    // B. 抓取 海龜指標與 RSI (需要歷史資料)
+    if (!stockCache.hasOwnProperty(upperId)) {
+        stockCache[upperId] = getYahooCompleteData(fullId);
+    }
+    const yahoo = stockCache[upperId];
+    
+    // 確保有資料
+    if (cp > 0 || (yahoo && yahoo.price > 0)) {
+      const currentPrice = cp || (yahoo ? yahoo.price : 0);
       
-      console.log(`Processing ${fullId}: Price=${cp}, ATR(N)=${n.toFixed(2)}, RSI=${rsiVal.toFixed(1)}`);
+      // [Robust Fix] 判斷資料來源與處理平盤 (0)
+      let changeVal = 0;
+      let changePct = 0;
+      let dataSource = "NONE";
 
-      // H~J: 行情 (使用 H 欄作為基礎)
-      marketValuesHIA.push([cp, `=H${row}-${pc}`, `=(H${row}-${pc})/${pc}`]);
+      if (snapshot.change !== undefined) {
+        changeVal = snapshot.change;
+        changePct = snapshot.changePercent;
+        dataSource = "BATCH_SNAPSHOT";
+      } else if (yahoo && yahoo.change !== undefined) {
+        changeVal = yahoo.change;
+        changePct = yahoo.changePercent;
+        dataSource = "FALLBACK_CHART";
+      }
+      
+      const h20 = yahoo ? yahoo.high : currentPrice;
+      const n = yahoo ? yahoo.nValue : (currentPrice * 0.015);
+      const rsiVal = yahoo ? yahoo.rsi : 50;
+      
+      console.log(`[${dataSource}] ${upperId}: Price=${currentPrice}, Change=${changeVal}, ATR(N)=${n.toFixed(2)}`);
+
+      // H~J: 行情
+      marketValuesHIA.push([currentPrice, changeVal, changePct]);
 
       // K~O: 海龜指標
-      const mStop = yahoo.low10 || (h20 - 2 * n);
-      const turtleSignal = (cp < mStop) ? "EXIT" : (cp >= h20 ? (rsiVal > RSI_OVERBOUGHT ? "WAIT" : "ADD") : "HOLD");
+      // ... (rest of indicator logic unchanged) ...
+      const mStop = yahoo ? yahoo.low10 : (h20 - 2 * n);
+      const turtleSignal = (currentPrice < mStop) ? "EXIT" : (currentPrice >= h20 ? (rsiVal > RSI_OVERBOUGHT ? "WAIT" : "ADD") : "HOLD");
+      
       let turtleStatus = "【持有】";
       let turtleColor = "#000000";
       let turtleBg = null;
@@ -121,16 +147,15 @@ function updateStockPriceOnly() {
         `=W${row}+Y${row}`            // Z
       ]);
 
-      // AA~AC: 基本面 (針對股票個別抓取，ETF 設為 0)
-      let eps = 0;
-      let pe = 0;
+      // AA~AC: 基本面 (優先用 Snapshot, 其次用 Fallback)
+      let eps = (snapshot.eps !== undefined && snapshot.eps !== 0) ? snapshot.eps : (yahoo ? yahoo.eps : 0);
+      let pe = (snapshot.pe !== undefined && snapshot.pe !== 0) ? snapshot.pe : (yahoo ? yahoo.pe : 0);
       
-      // 判斷是否為 ETF (代號 00 開頭)
-      if (!fullId.startsWith("00")) {
-        const fundamental = getYahooQuote(fullId, cp);
+      // 如果 Snapshot 沒有基本面，又是台股，嘗試用 Open Data 補
+      if (eps === 0 && pe === 0 && !fullId.startsWith("00")) {
+        const fundamental = getYahooQuote(fullId, currentPrice);
         eps = fundamental.eps;
         pe = fundamental.pe;
-        Utilities.sleep(200); // 稍微暫停避免被 Yahoo 偵測為爬蟲
       }
       
       fundamentalValuesAAAC.push([
@@ -151,8 +176,8 @@ function updateStockPriceOnly() {
       technicalValuesADAE.push([rsiVal, unitLots]);
 
       // 收集變色邏輯所需的資訊
-      const estProfit = (cp * qty * (1 - FEE_RATE - TAX_RATE)) - (buyPrice * qty * (1 + FEE_RATE));
-      const trendColor = (cp > pc) ? "#ff0000" : (cp < pc ? "#1e8e3e" : "#000000");
+      const estProfit = (currentPrice * qty * (1 - FEE_RATE - TAX_RATE)) - (buyPrice * qty * (1 + FEE_RATE));
+      const trendColor = (changeVal > 0) ? "#ff0000" : (changeVal < 0 ? "#1e8e3e" : "#000000");
       rowColors.push({
         row: row, 
         profitColor: (estProfit >= 0 ? "#ff0000" : "#1e8e3e"), 

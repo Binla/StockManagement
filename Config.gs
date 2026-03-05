@@ -10,6 +10,7 @@ const SHEET_ACTIVE   = "在庫";
 const SHEET_CLOSED   = "出倉";
 const SHEET_INPUT    = "買賣";
 const SHEET_DIVIDEND = "股利"; 
+const SHEET_CHART    = "投資分配圖"; 
 const FEE_RATE       = 0.000397; 
 const TAX_RATE       = 0.003;    
 

@@ -21,7 +21,9 @@ function onOpen() {
 function syncAllData() {
   updateActiveFromInput();
   updateClosedFromInput();
-  SpreadsheetApp.getActiveSpreadsheet().toast("✅ 買賣資料已全面同步 (在庫 + 出倉)！");
+  updateStockPriceOnly(); // 先更新行情以確保成本計算正確
+  updateInvestmentPieChart(); // 更新投資分配圖
+  SpreadsheetApp.getActiveSpreadsheet().toast("✅ 買賣資料與分配圖已全面同步！");
 }
 
 // --- 自動化觸發器設定 ---
