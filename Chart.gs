@@ -52,51 +52,60 @@ function updateInvestmentPieChart() {
     distribution[label].shares += shares;
   }
 
-  const chartData = [["股票名稱", "張數", "投資金額"]];
+  const outputData = [["股票名稱", "張數", "投資金額", "總投資金額", "圖表標籤"]];
   let totalCost = 0;
   for (let label in distribution) {
     totalCost += distribution[label].cost;
   }
 
+  let rowIndex = 1;
   for (let label in distribution) {
     const cost = distribution[label].cost;
     const shares = distribution[label].shares;
     const sheets = Math.floor(shares / 1000); // 無小數點
-    chartData.push([label, sheets, cost]);
+    
+    // 總投資金額只放在第一行資料
+    const totalCostStr = (rowIndex === 1) ? totalCost : "";
+    outputData.push([label, sheets, cost, totalCostStr, `${label} (${sheets} 張)`]);
+    
+    rowIndex++;
   }
 
-  if (chartData.length <= 1) {
+  if (outputData.length <= 1) {
     ss.toast("無有效的投入成本數據。");
     return;
   }
 
   // 4. 將摘要表寫入「投資分配圖」Sheet
-  chartSheet.getRange(1, 1, chartData.length, 3).setValues(chartData);
-  
-  // D1 寫入總投資金額
-  chartSheet.getRange(1, 4).setValue("總投資金額");
-  chartSheet.getRange(2, 4).setValue(totalCost);
+  chartSheet.getRange(1, 1, outputData.length, 5).setValues(outputData);
   
   // 樣式與數字格式
   chartSheet.getRange(1, 1, 1, 4).setFontWeight("bold").setBackground("#d9ead3");
-  chartSheet.getRange(2, 2, chartData.length - 1, 1).setNumberFormat("#,##0");   // 張數
-  chartSheet.getRange(2, 3, chartData.length - 1, 1).setNumberFormat("#,##0");   // 投資金額
-  chartSheet.getRange(2, 4).setNumberFormat("#,##0");                            // 總投資金額
+  chartSheet.getRange(2, 2, outputData.length - 1, 1).setNumberFormat("#,##0");   // 張數
+  chartSheet.getRange(2, 3, outputData.length - 1, 1).setNumberFormat("#,##0");   // 投資金額
+  chartSheet.getRange(2, 4, outputData.length - 1, 1).setNumberFormat("#,##0");   // 總投資金額
+  
+  // 自動調整欄寬與隱藏輔助圖表標籤
   chartSheet.autoResizeColumns(1, 4);
+  chartSheet.hideColumns(5);
+
+  // 動態根據項目多寡決定圖表高度/寬度
+  let chartHeight = Math.max(600, outputData.length * 30 + 100);
+  let chartWidth = Math.max(900, outputData.length * 30 + 400);
 
   // 5. 建立/更新 Pie Chart 
   const chart = chartSheet.newChart()
     .setChartType(Charts.ChartType.PIE)
-    // 第一個 range: 股票名稱 (Col 1)
-    .addRange(chartSheet.getRange(1, 1, chartData.length, 1)) 
-    // 第二個 range: 改為 張數 (Col 2)，在圓餅圖上顯示
-    .addRange(chartSheet.getRange(1, 2, chartData.length, 1))
+    // 第一個 range: 圖表標籤 (Col 5) -> EX: "台積電 (5 張)"
+    .addRange(chartSheet.getRange(1, 5, outputData.length, 1)) 
+    // 第二個 range: 投資金額 (Col 3) -> 用金額作為圖餅大小
+    .addRange(chartSheet.getRange(1, 3, outputData.length, 1))
     .setPosition(2, 6, 0, 0)
-    .setOption('title', '在庫持股投資數量圖 (依張數)')
+    .setOption('title', '在庫持股投資分配圖 (依金額分佈, 顯示張數)')
     .setOption('is3D', true)
     .setOption('pieSliceText', 'value-and-percentage')
-    .setOption('width', 800)
-    .setOption('height', 600)
+    .setOption('width', chartWidth)
+    .setOption('height', chartHeight)
     .build();
 
   chartSheet.insertChart(chart);
