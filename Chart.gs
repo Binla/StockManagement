@@ -127,8 +127,6 @@ function updateInvestmentPieChart() {
     .setOption('title', '在庫持股投資分配圖 (依金額分佈)')
     // 重點 1：設為 label，把隱藏的 H 欄文字塞進圓餅圖區塊裡面
     .setOption('pieSliceText', 'label')  
-    // 重點 2：縮小圖表本體以預留空間給文字 (字體不擠壓)
-    .setOption('chartArea', {left: 50, top: 50, width: '70%', height: '80%'})
     // 圖例放在右側，讓出左邊空間，避免擁擠
     .setOption('legend', {position: 'right', textStyle: {fontSize: 14}})
     .setOption('width', chartWidth)
