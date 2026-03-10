@@ -69,9 +69,8 @@ function updateInvestmentPieChart() {
     // 總投資金額只放在第一行資料 (對應 G 欄)
     const totalCostStr = (rowIndex === 1) ? totalCost : "";
     
-    // 將張數與佔比一起包入標籤文字中，因為要顯示在圖表內
-    const percentStr = (percent * 100).toFixed(1) + "%";
-    const chartLabel = `${label}\n${sheets} 張\n${percentStr}`;
+    // 為了避免文字太長被切斷，精簡圖表標籤
+    const chartLabel = `${label} (${sheets} 張)`;
     outputData.push([label, sheets, cost, percent, "", "", totalCostStr, chartLabel]);
     
     rowIndex++;
@@ -125,10 +124,10 @@ function updateInvestmentPieChart() {
     // 位置: 放在 I 欄 (第 9 欄) 之後，避免擋到 G 欄
     .setPosition(2, 9, 0, 0)
     .setOption('title', '在庫持股投資分配圖 (依金額分佈)')
-    // 重點 1：設為 label，把隱藏的 H 欄文字塞進圓餅圖區塊裡面
-    .setOption('pieSliceText', 'label')  
-    // 圖例放在右側，讓出左邊空間，避免擁擠
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 14}})
+    // 重點 1：設為 value-and-percentage，顯示投資金額與佔比在內部
+    .setOption('pieSliceText', 'value-and-percentage')  
+    // 重點 2：圖表標籤使用拉線的方式放到圖表外部，並設定較小字體保證顯示
+    .setOption('legend', {position: 'labeled', textStyle: {fontSize: 12}})
     .setOption('width', chartWidth)
     .setOption('height', chartHeight)
     .build();
