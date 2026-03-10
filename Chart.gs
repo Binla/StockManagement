@@ -52,8 +52,8 @@ function updateInvestmentPieChart() {
     distribution[label].shares += shares;
   }
 
-  // D欄改為佔比 (%), E欄改為總投資金額, F欄為圖表標籤 (隱藏)
-  const outputData = [["股票名稱", "張數", "投資金額", "佔比", "總投資金額", "圖表標籤"]];
+  // A:股票名稱, B:張數, C:投資金額, D:佔比, E:空, F:空, G:總投資金額, H:圖表標籤 (隱藏)
+  const outputData = [["股票名稱", "張數", "投資金額", "佔比", "", "", "總投資金額", "圖表標籤"]];
   let totalCost = 0;
   for (let label in distribution) {
     totalCost += distribution[label].cost;
@@ -66,9 +66,9 @@ function updateInvestmentPieChart() {
     const sheets = Math.floor(shares / 1000); // 無小數點
     const percent = totalCost > 0 ? cost / totalCost : 0; // 佔比
     
-    // 總投資金額只放在第一行資料
+    // 總投資金額只放在第一行資料 (對應 G 欄)
     const totalCostStr = (rowIndex === 1) ? totalCost : "";
-    outputData.push([label, sheets, cost, percent, totalCostStr, `${label} (${sheets} 張)`]);
+    outputData.push([label, sheets, cost, percent, "", "", totalCostStr, `${label} (${sheets} 張)`]);
     
     rowIndex++;
   }
@@ -79,35 +79,44 @@ function updateInvestmentPieChart() {
   }
 
   // 4. 將摘要表寫入「投資分配圖」Sheet
-  chartSheet.getRange(1, 1, outputData.length, 6).setValues(outputData);
+  chartSheet.getRange(1, 1, outputData.length, 8).setValues(outputData);
   
-  // 樣式與數字格式
-  chartSheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#d9ead3");
+  // 文字全部置中
+  chartSheet.getRange(1, 1, outputData.length, 8).setHorizontalAlignment("center");
+  
+  // 樣式：表頭粗體與背景 (A~D 欄與 G 欄)
+  chartSheet.getRange(1, 1, 1, 4).setFontWeight("bold").setBackground("#d9ead3");
+  chartSheet.getRange(1, 7, 1, 1).setFontWeight("bold").setBackground("#d9ead3");
+  
+  // 數字格式
   chartSheet.getRange(2, 2, outputData.length - 1, 1).setNumberFormat("#,##0");   // 張數
   chartSheet.getRange(2, 3, outputData.length - 1, 1).setNumberFormat("#,##0");   // 投資金額
   chartSheet.getRange(2, 4, outputData.length - 1, 1).setNumberFormat("0.00%");   // 佔比
-  chartSheet.getRange(2, 5, outputData.length - 1, 1).setNumberFormat("#,##0");   // 總投資金額
+  chartSheet.getRange(2, 7, outputData.length - 1, 1).setNumberFormat("#,##0");   // 總投資金額
   
-  // 自動調整欄寬與隱藏輔助圖表標籤
-  // 為了確保「總投資金額」和「佔比」夠寬，直接給予設定
-  chartSheet.autoResizeColumns(1, 5); 
-  chartSheet.setColumnWidth(4, 80); // 佔比寬一點點
-  chartSheet.setColumnWidth(5, 120); // 總金額寬一點點
-  chartSheet.hideColumns(6);
+  // 自動調整欄寬
+  chartSheet.autoResizeColumns(1, 8); 
+  
+  // 若字串太長導致 autoResize 沒算好，手動預留足夠寬度
+  chartSheet.setColumnWidth(4, 90);  // 佔比寬度
+  chartSheet.setColumnWidth(7, 130); // 總投資金額寬度
+  
+  // 隱藏 H 欄 (第 8 欄) 圖表標籤
+  chartSheet.hideColumns(8);
 
   // 動態根據項目多寡決定圖表高度/寬度
-  // 增加基礎長寬，確保標籤與數值完整顯示不會被切斷
   let chartHeight = Math.max(700, outputData.length * 40 + 200);
   let chartWidth = Math.max(1000, outputData.length * 30 + 500);
 
   // 5. 建立/更新 Pie Chart 
   const chart = chartSheet.newChart()
     .setChartType(Charts.ChartType.PIE)
-    // 第一個 range: 圖表標籤 (Col 6) -> EX: "台積電 (5 張)"
-    .addRange(chartSheet.getRange(1, 6, outputData.length, 1)) 
-    // 第二個 range: 投資金額 (Col 3) -> 用金額作為圖餅大小
+    // 第一個 range: 圖表標籤 (Col 8 -> H 欄)
+    .addRange(chartSheet.getRange(1, 8, outputData.length, 1)) 
+    // 第二個 range: 投資金額 (Col 3 -> C 欄)
     .addRange(chartSheet.getRange(1, 3, outputData.length, 1))
-    .setPosition(2, 7, 0, 0)
+    // 位置: 放在 I 欄 (第 9 欄) 之後，避免擋到 G 欄
+    .setPosition(2, 9, 0, 0)
     .setOption('title', '在庫持股投資分配圖 (依金額分佈, 顯示張數)')
     .setOption('is3D', true)
     .setOption('pieSliceText', 'value-and-percentage')
