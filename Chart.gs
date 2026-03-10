@@ -68,7 +68,11 @@ function updateInvestmentPieChart() {
     
     // 總投資金額只放在第一行資料 (對應 G 欄)
     const totalCostStr = (rowIndex === 1) ? totalCost : "";
-    outputData.push([label, sheets, cost, percent, "", "", totalCostStr, `${label} (${sheets} 張)`]);
+    
+    // 將張數與佔比一起包入標籤文字中，因為要顯示在圖表內
+    const percentStr = (percent * 100).toFixed(1) + "%";
+    const chartLabel = `${label}\n${sheets} 張\n${percentStr}`;
+    outputData.push([label, sheets, cost, percent, "", "", totalCostStr, chartLabel]);
     
     rowIndex++;
   }
@@ -98,6 +102,9 @@ function updateInvestmentPieChart() {
   chartSheet.autoResizeColumns(1, 8); 
   
   // 若字串太長導致 autoResize 沒算好，手動預留足夠寬度
+  chartSheet.setColumnWidth(1, 150); // 確保股票名稱完整
+  chartSheet.setColumnWidth(2, 80);  // 張數寬度
+  chartSheet.setColumnWidth(3, 120); // 投資金額寬度
   chartSheet.setColumnWidth(4, 90);  // 佔比寬度
   chartSheet.setColumnWidth(7, 130); // 總投資金額寬度
   
@@ -105,8 +112,8 @@ function updateInvestmentPieChart() {
   chartSheet.hideColumns(8);
 
   // 動態根據項目多寡決定圖表高度/寬度
-  let chartHeight = Math.max(700, outputData.length * 40 + 200);
-  let chartWidth = Math.max(1000, outputData.length * 30 + 500);
+  let chartHeight = Math.max(800, outputData.length * 40 + 200);
+  let chartWidth = Math.max(1200, outputData.length * 40 + 500);
 
   // 5. 建立/更新 Pie Chart 
   const chart = chartSheet.newChart()
@@ -117,12 +124,15 @@ function updateInvestmentPieChart() {
     .addRange(chartSheet.getRange(1, 3, outputData.length, 1))
     // 位置: 放在 I 欄 (第 9 欄) 之後，避免擋到 G 欄
     .setPosition(2, 9, 0, 0)
-    .setOption('title', '在庫持股投資分配圖 (依金額分佈, 顯示張數)')
-    .setOption('is3D', true)
-    .setOption('pieSliceText', 'value-and-percentage')
+    .setOption('title', '在庫持股投資分配圖 (依金額分佈)')
+    // 重點 1：設為 label，把隱藏的 H 欄文字塞進圓餅圖區塊裡面
+    .setOption('pieSliceText', 'label')  
+    // 重點 2：縮小圖表本體以預留空間給文字 (字體不擠壓)
+    .setOption('chartArea', {left: 50, top: 50, width: '70%', height: '80%'})
+    // 圖例放在右側，讓出左邊空間，避免擁擠
+    .setOption('legend', {position: 'right', textStyle: {fontSize: 14}})
     .setOption('width', chartWidth)
     .setOption('height', chartHeight)
-    .setOption('legend', {textStyle: {fontSize: 14}})
     .build();
 
   chartSheet.insertChart(chart);
