@@ -39,24 +39,30 @@ function updateInvestmentPieChart() {
   for (let i = 0; i < data.length; i++) {
     const name = data[i][0].toString().trim();
     const id = data[i][1].toString().trim();
+    const shares = Number(data[i][2]) || 0; // Column C is index 2
     const cost = Number(data[i][17]) || 0; // Column R is index 17
     
     if (!id || cost <= 0) continue;
     
     const label = `${name} (${id})`;
-    distribution[label] = (distribution[label] || 0) + cost;
+    if (!distribution[label]) {
+      distribution[label] = { cost: 0, shares: 0 };
+    }
+    distribution[label].cost += cost;
+    distribution[label].shares += shares;
   }
 
-  const chartData = [["持股名稱", "投入成本", "分配百分比"]];
+  const chartData = [["股票名稱", "股數", "張數", "總投資金額"]];
   let totalCost = 0;
   for (let label in distribution) {
-    totalCost += distribution[label];
+    totalCost += distribution[label].cost;
   }
 
   for (let label in distribution) {
-    const cost = distribution[label];
-    const percent = totalCost > 0 ? cost / totalCost : 0;
-    chartData.push([label, cost, percent]);
+    const cost = distribution[label].cost;
+    const shares = distribution[label].shares;
+    const sheets = shares / 1000;
+    chartData.push([label, shares, sheets, cost]);
   }
 
   if (chartData.length <= 1) {
@@ -65,15 +71,21 @@ function updateInvestmentPieChart() {
   }
 
   // 4. 將摘要表寫入「投資分配圖」Sheet
-  chartSheet.getRange(1, 1, chartData.length, 3).setValues(chartData);
+  chartSheet.getRange(1, 1, chartData.length, 4).setValues(chartData);
+  chartSheet.getRange(1, 1, 1, 4).setFontWeight("bold").setBackground("#d9ead3");
   chartSheet.getRange(2, 2, chartData.length - 1, 1).setNumberFormat("#,##0");
-  chartSheet.getRange(2, 3, chartData.length - 1, 1).setNumberFormat("0.00%");
+  chartSheet.getRange(2, 3, chartData.length - 1, 1).setNumberFormat("0.00");
+  chartSheet.getRange(2, 4, chartData.length - 1, 1).setNumberFormat("#,##0");
+  chartSheet.autoResizeColumns(1, 4);
 
   // 5. 建立/更新 Pie Chart
   const chart = chartSheet.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(chartSheet.getRange(1, 1, chartData.length, 2)) // 圖表仍維持 2 欄即可 (名稱 vs 成本)
-    .setPosition(2, 5, 0, 0)
+    // 第一個 range: 股票名稱 (Col 1)
+    .addRange(chartSheet.getRange(1, 1, chartData.length, 1)) 
+    // 第二個 range: 總投資金額 (Col 4)
+    .addRange(chartSheet.getRange(1, 4, chartData.length, 1))
+    .setPosition(2, 6, 0, 0)
     .setOption('title', '在庫持股投資分配圖 (依成本)')
     .setOption('is3D', true)
     .setOption('pieSliceText', 'value-and-percentage')
